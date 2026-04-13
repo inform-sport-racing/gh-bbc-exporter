@@ -200,6 +200,13 @@ func (e *Exporter) Export(workspace, repoSlug string) error {
 		}
 	}
 
+	// Enrich users with any PR/comment authors who are no longer workspace members
+	// (departed employees). Write the updated list back over the initial file.
+	users = e.client.EnrichUsersFromPRActivity(workspace, users)
+	if err := e.writeJSONFile("users_000001.json", users); err != nil {
+		e.logger.Warn("Failed to rewrite users file after enrichment", zap.Error(err))
+	}
+
 	if err := e.validateExportData(); err != nil {
 		e.logger.Warn("Export validation issues detected", zap.Error(err))
 	}

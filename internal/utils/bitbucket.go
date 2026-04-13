@@ -29,7 +29,8 @@ type Client struct {
 	appPass          string // To be deprecated Sept 2025
 	logger           *zap.Logger
 	commitSHACache      map[string]string
-	prSourceCommitCache map[int]string // prID -> original source branch tip SHA
+	userCache           map[string]data.BitbucketPRUser // UUID -> user, populated during PR/comment fetch
+	prSourceCommitCache map[int]string                  // prID -> original source branch tip SHA
 	exportDir           string
 	skipCommitLookup    bool
 }
@@ -70,6 +71,7 @@ func NewClient(baseURL, accessToken, apiToken, email, username, appPass string, 
 		appPass:          appPass,
 		logger:           logger,
 		commitSHACache:      make(map[string]string),
+		userCache:           make(map[string]data.BitbucketPRUser),
 		prSourceCommitCache: make(map[int]string),
 		exportDir:           exportDir,
 		skipCommitLookup:    skipCommitLookup,
@@ -433,9 +435,20 @@ func (c *Client) GetPullRequests(workspace, repoSlug string, openPRsOnly bool, p
 			repoURL := formatURL("repository", workspace, repoSlug)
 			prUser := formatURL("user", workspace, "")
 
+			// Cache author and original source SHA for use by EnrichUsersFromPRActivity
+			// and GetPullRequestComments respectively.
+			if pr.Author.UUID != "" && c.userCache != nil {
+				c.userCache[strings.Trim(pr.Author.UUID, "{}")] = pr.Author
+			}
+
 			// Resolve commit SHAs
 			baseSHA, _ := c.GetFullCommitSHA(workspace, repoSlug, pr.Destination.Commit.Hash)
 			headSHA, _ := c.GetFullCommitSHA(workspace, repoSlug, pr.Source.Commit.Hash)
+
+			// Store original source SHA before any fallback for use by review comments
+			if c.prSourceCommitCache != nil {
+				c.prSourceCommitCache[pr.ID] = headSHA
+			}
 
 			description := ""
 			if pr.Description != nil {
@@ -582,6 +595,56 @@ func (c *Client) GetFullCommitSHA(workspace, repoSlug, commitHash string) (strin
 	}
 
 	return commitHash, nil
+}
+
+// EnrichUsersFromPRActivity finds any PR authors or comment authors whose UUIDs
+// are not already present in the users slice — typically former workspace members —
+// and appends them using data collected during PR and comment fetching.
+// This avoids a separate API call to /users/{uuid} which is restricted for
+// workspace access tokens.
+func (c *Client) EnrichUsersFromPRActivity(workspace string, users []data.User) []data.User {
+	// Build a set of UUIDs already in the users list
+	knownUUIDs := make(map[string]bool, len(users))
+	for _, u := range users {
+		knownUUIDs[u.Login] = true
+	}
+
+	added := 0
+	for uuid, bbUser := range c.userCache {
+		if knownUUIDs[uuid] {
+			continue
+		}
+
+		name := bbUser.DisplayName
+		if name == "" {
+			name = bbUser.Nickname
+		}
+		if name == "" {
+			name = uuid
+		}
+
+		profileURL := fmt.Sprintf("https://bitbucket.org/%s", uuid)
+		users = append(users, data.User{
+			Type:      "user",
+			URL:       profileURL,
+			Login:     uuid,
+			Name:      name,
+			CreatedAt: formatDateToZ(time.Now().Format(time.RFC3339)),
+			Emails:    []data.Email{},
+		})
+		knownUUIDs[uuid] = true
+		added++
+		c.logger.Debug("Added departed user to export",
+			zap.String("uuid", uuid),
+			zap.String("name", name))
+	}
+
+	if added > 0 {
+		c.logger.Info("Added departed workspace users from PR activity",
+			zap.Int("count", added))
+	}
+
+	return users
 }
 
 // GetPullRequestDiff fetches the unified diff for a pull request as raw text.
@@ -739,7 +802,18 @@ func (c *Client) GetPullRequestComments(workspace, repoSlug string, pullRequests
 			prID, err := strconv.Atoi(parts[len(parts)-1])
 			if err == nil {
 				prURLMap[prID] = pr.URL
-				prCommitMap[prID] = pr.Head.SHA
+				// Use the original source branch tip SHA for review comments, not the
+				// potentially-overridden head.sha. Review comments reference the commit
+				// they were made on, which is always the feature branch tip.
+				if c.prSourceCommitCache != nil {
+					if sourceSHA, ok := c.prSourceCommitCache[prID]; ok && sourceSHA != "" {
+						prCommitMap[prID] = sourceSHA
+					} else {
+						prCommitMap[prID] = pr.Head.SHA
+					}
+				} else {
+					prCommitMap[prID] = pr.Head.SHA
+				}
 			}
 		}
 	}
@@ -815,6 +889,11 @@ func (c *Client) GetPullRequestComments(workspace, repoSlug string, pullRequests
 				updatedAt := formatDateToZ(comment.UpdatedOn)
 				transformedBody := c.transformCommentBody(comment.Content.Raw, workspace, repoSlug)
 				prNumber := fmt.Sprintf("%d", prID)
+
+				// Cache comment author for user enrichment
+				if comment.User.UUID != "" && c.userCache != nil {
+					c.userCache[strings.Trim(comment.User.UUID, "{}")] = comment.User
+				}
 
 				if comment.Inline != nil && comment.Inline.Path != "" {
 					if !resolvedSHAs[prID] {
