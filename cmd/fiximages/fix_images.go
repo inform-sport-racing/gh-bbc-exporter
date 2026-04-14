@@ -12,16 +12,10 @@ import (
 )
 
 type fixImagesFlags struct {
-	// Bitbucket source (needed to download images from a private repo)
-	BitbucketAccessToken string
-	BitbucketAPIToken    string
-	BitbucketEmail       string
-	BitbucketUser        string
-	BitbucketAppPass     string
-	BitbucketAPIURL      string
+	// Bitbucket source
 	BitbucketSessionToken string
-	Workspace            string
-	Repository           string
+	Workspace             string
+	Repository            string
 
 	// GitHub target
 	TargetOrg         string
@@ -72,20 +66,8 @@ Run this after 'migrate' completes.`,
 	cmd.PersistentFlags().SortFlags = false
 
 	// Bitbucket flags
-	cmd.PersistentFlags().StringVarP(&flags.BitbucketAPIURL, "bbc-api-url", "a",
-		"https://api.bitbucket.org/2.0", "Bitbucket API URL")
-	cmd.PersistentFlags().StringVarP(&flags.BitbucketAccessToken, "access-token", "t", "",
-		"Bitbucket workspace access token (env: BITBUCKET_ACCESS_TOKEN)")
-	cmd.PersistentFlags().StringVar(&flags.BitbucketAPIToken, "api-token", "",
-		"Bitbucket API token (env: BITBUCKET_API_TOKEN)")
-	cmd.PersistentFlags().StringVarP(&flags.BitbucketEmail, "email", "e", "",
-		"Atlassian account email for API token auth (env: BITBUCKET_EMAIL)")
-	cmd.PersistentFlags().StringVarP(&flags.BitbucketUser, "user", "u", "",
-		"Bitbucket username (env: BITBUCKET_USERNAME)")
-	cmd.PersistentFlags().StringVarP(&flags.BitbucketAppPass, "app-password", "p", "",
-		"Bitbucket app password (env: BITBUCKET_APP_PASSWORD)")
-	cmd.PersistentFlags().StringVar(&flags.BitbucketSessionToken, "session-token", "",
-		"Atlassian cloud.session.token cookie value (copy from browser dev tools)")
+	cmd.PersistentFlags().StringVar(&flags.BitbucketSessionToken, "bitbucket-session-token", "",
+		"Atlassian cloud.session.token cookie value (copy from browser dev tools → Application → Cookies → bitbucket.org)")
 	cmd.PersistentFlags().StringVarP(&flags.Workspace, "workspace", "w", "",
 		"Bitbucket workspace (required)")
 	cmd.PersistentFlags().StringVarP(&flags.Repository, "repository", "r", "",
@@ -126,25 +108,12 @@ func runFixImages(flags *fixImagesFlags, logger *zap.Logger) error {
 		targetRepo = flags.Repository
 	}
 
-	// Build Bitbucket client
-	bbClient := utils.NewClient(
-		flags.BitbucketAPIURL,
-		flags.BitbucketAccessToken,
-		flags.BitbucketAPIToken,
-		flags.BitbucketEmail,
-		flags.BitbucketUser,
-		flags.BitbucketAppPass,
-		logger,
-		"", // no exportDir needed for downloads
-		false,
-	)
-
 	apiBase := flags.TargetAPIURL
 	if apiBase == "" {
 		apiBase = "https://api.github.com"
 	}
 
-	fixer := utils.NewImageFixer(bbClient, ghToken, apiBase, flags.TargetOrg, targetRepo, flags.BitbucketSessionToken, flags.GitHubUserSession, logger)
+	fixer := utils.NewImageFixer(ghToken, apiBase, flags.TargetOrg, targetRepo, flags.BitbucketSessionToken, flags.GitHubUserSession, logger)
 
 	logger.Info("Starting image migration",
 		zap.String("bitbucket", fmt.Sprintf("%s/%s", flags.Workspace, flags.Repository)),

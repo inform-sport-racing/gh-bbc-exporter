@@ -32,7 +32,6 @@ var (
 // ImageFixer downloads Bitbucket-hosted inline images from migrated GitHub PR descriptions
 // and re-uploads them to GitHub's CDN, then patches the PR bodies in place.
 type ImageFixer struct {
-	bbClient      *Client
 	ghToken       string
 	ghAPIBase     string // e.g. "https://api.github.com"
 	targetOrg     string
@@ -43,9 +42,8 @@ type ImageFixer struct {
 	logger        *zap.Logger
 }
 
-func NewImageFixer(bbClient *Client, ghToken, ghAPIBase, targetOrg, targetRepo, sessionToken, ghUserSession string, logger *zap.Logger) *ImageFixer {
+func NewImageFixer(ghToken, ghAPIBase, targetOrg, targetRepo, sessionToken, ghUserSession string, logger *zap.Logger) *ImageFixer {
 	return &ImageFixer{
-		bbClient:      bbClient,
 		ghToken:       ghToken,
 		ghAPIBase:     ghAPIBase,
 		targetOrg:     targetOrg,
@@ -196,15 +194,12 @@ func (f *ImageFixer) downloadFromBitbucket(imgURL string) ([]byte, string, error
 		},
 	}
 
-	// Try auth approaches in order until one yields a redirect to the S3 URL.
 	// The bitbucket.org image endpoint requires a browser session cookie —
-	// workspace/API tokens don't work here. Provide --session-token for reliable
+	// workspace/API tokens don't work here. Provide --bitbucket-session-token for reliable
 	// image downloads (copy cloud.session.token from browser dev tools).
 	type authFn func(*http.Request)
 	authAttempts := []authFn{
-		func(r *http.Request) {},                            // unauthenticated (public repos)
-		func(r *http.Request) { f.bbClient.setWebAuth(r) }, // x-token-auth / email:apitoken Basic
-		func(r *http.Request) { f.bbClient.setAuth(r) },    // Bearer / API Basic
+		func(r *http.Request) {}, // unauthenticated (public repos)
 	}
 	if f.sessionToken != "" {
 		authAttempts = append([]authFn{func(r *http.Request) {
@@ -223,7 +218,7 @@ func (f *ImageFixer) downloadFromBitbucket(imgURL string) ([]byte, string, error
 	if lastErr != nil {
 		return nil, "", fmt.Errorf(
 			"%w — bitbucket.org image URLs require a browser session cookie; "+
-				"retry with --session-token (copy cloud.session.token from browser dev tools)", lastErr)
+				"retry with --bitbucket-session-token (copy cloud.session.token from browser dev tools)", lastErr)
 	}
 
 	// Download the (possibly pre-signed CDN) URL without extra auth headers.
@@ -231,7 +226,7 @@ func (f *ImageFixer) downloadFromBitbucket(imgURL string) ([]byte, string, error
 	if err != nil {
 		return nil, "", err
 	}
-	resp, err := f.bbClient.httpClient.Do(cdnReq)
+	resp, err := f.httpClient.Do(cdnReq)
 	if err != nil {
 		return nil, "", err
 	}
