@@ -270,5 +270,20 @@ func runCmdMigrate(exportFlags *data.CmdExportFlags, migrateFlags *data.CmdMigra
 	logger.Debug("Migration process finished",
 		zap.String("source", fmt.Sprintf("%s/%s", exportFlags.Workspace, exportFlags.Repository)),
 		zap.String("target", fmt.Sprintf("%s/%s", migrateFlags.TargetOrg, migrateFlags.TargetRepo)))
+
+	// Fix inline images: the GitHub repo now exists, so we can download images
+	// from Bitbucket and re-upload them to GitHub's CDN, then patch PR bodies.
+	targetRepo := migrateFlags.TargetRepo
+	if targetRepo == "" {
+		targetRepo = exportFlags.Repository
+	}
+	fixer := utils.NewImageFixer(client, g.AuthToken(), migrateFlags.TargetAPIURL,
+		migrateFlags.TargetOrg, targetRepo, "", "", logger)
+	if err := fixer.FixImages(); err != nil {
+		// Image migration is best-effort — log a warning but don't fail the command.
+		logger.Warn("Inline image migration encountered errors (re-run 'fix-images' to retry)",
+			zap.Error(err))
+	}
+
 	return nil
 }

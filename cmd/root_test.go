@@ -81,8 +81,8 @@ func TestNewCmdRootHelpCommandHidden(t *testing.T) {
 func TestNewCmdRootSubcommandCount(t *testing.T) {
 	cmd := NewCmdRoot()
 
-	// Should have exactly 2 subcommands: export and migrate
-	assert.Equal(t, 2, len(cmd.Commands()), "Root command should have 2 subcommands")
+	// Should have exactly 3 subcommands: export, migrate, fix-images
+	assert.Equal(t, 3, len(cmd.Commands()), "Root command should have 3 subcommands")
 }
 
 func TestNewCmdRootExecuteHelp(t *testing.T) {

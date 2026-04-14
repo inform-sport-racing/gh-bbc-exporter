@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"github.com/katiem0/gh-bbc-exporter/cmd/export"
+	"github.com/katiem0/gh-bbc-exporter/cmd/fiximages"
 	"github.com/katiem0/gh-bbc-exporter/cmd/migrate"
 	"github.com/spf13/cobra"
 )
@@ -16,6 +17,7 @@ func NewCmdRoot() *cobra.Command {
 
 	cmdRoot.AddCommand(export.NewCmdExport())
 	cmdRoot.AddCommand(migrate.NewCmdMigrate())
+	cmdRoot.AddCommand(fiximages.NewCmdFixImages())
 	cmdRoot.CompletionOptions.DisableDefaultCmd = true
 	cmdRoot.SetHelpCommand(&cobra.Command{
 		Use:    "no-help",

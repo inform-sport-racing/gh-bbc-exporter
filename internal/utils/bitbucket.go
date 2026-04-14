@@ -117,6 +117,23 @@ func (c *Client) setAuth(req *http.Request) {
 	}
 }
 
+// setWebAuth sets authentication for non-API Bitbucket URLs (bitbucket.org web tier).
+// Workspace access tokens must be passed as Basic auth with "x-token-auth" username
+// rather than Bearer, because the web tier doesn't accept Bearer auth.
+func (c *Client) setWebAuth(req *http.Request) {
+	if c.accessToken != "" {
+		req.SetBasicAuth("x-token-auth", c.accessToken)
+	} else if c.apiToken != "" {
+		if c.email != "" {
+			req.SetBasicAuth(c.email, c.apiToken)
+		} else {
+			req.SetBasicAuth("x-bitbucket-api-token-auth", c.apiToken)
+		}
+	} else if c.username != "" && c.appPass != "" {
+		req.SetBasicAuth(c.username, c.appPass)
+	}
+}
+
 func (c *Client) makeRequest(method, endpoint string, v interface{}) error {
 	var fullURL string
 	maxRetries := 5
@@ -454,6 +471,7 @@ func (c *Client) GetPullRequests(workspace, repoSlug string, openPRsOnly bool, p
 			if pr.Description != nil {
 				description = *pr.Description
 			}
+			description = c.transformCommentBody(description, workspace, repoSlug)
 
 			// Format merge commit SHA if available
 			var mergeCommitSHA *string
@@ -1085,6 +1103,16 @@ func (c *Client) GetPullRequestComments(workspace, repoSlug string, pullRequests
 	return regularComments, reviewComments, nil
 }
 
+// bitbucketKramdownAttrPattern matches Bitbucket's Kramdown/attribute-list syntax,
+// e.g. {: data-layout='center' }, which GitHub renders as literal text.
+var bitbucketKramdownAttrPattern = regexp.MustCompile(`\{:[^}]+\}`)
+
+// stripBitbucketMarkdownAttrs removes Bitbucket-specific Kramdown attribute blocks
+// that GitHub does not support and renders as literal text.
+func stripBitbucketMarkdownAttrs(body string) string {
+	return bitbucketKramdownAttrPattern.ReplaceAllString(body, "")
+}
+
 func (c *Client) transformCommentBody(body, workspace, repoSlug string) string {
 	if body == "" {
 		return body
@@ -1104,5 +1132,5 @@ func (c *Client) transformCommentBody(body, workspace, repoSlug string) string {
 			workspace, repoSlug, numStr))
 	})
 
-	return transformedBody
+	return stripBitbucketMarkdownAttrs(transformedBody)
 }

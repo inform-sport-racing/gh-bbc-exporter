@@ -34,6 +34,10 @@ func NewAPIGetter(gqlClient *api.GraphQLClient, restClient *api.RESTClient, auth
 	}
 }
 
+func (g *APIGetter) AuthToken() string {
+	return g.authToken
+}
+
 func RunGitHubAPIMigration(exportFlags *data.CmdExportFlags, migrateFlags *data.CmdMigrateFlags, archivePath string, g *APIGetter, logger *zap.Logger) error {
 	logger.Debug("Starting GitHub API migration process",
 		zap.String("workspace", exportFlags.Workspace),
