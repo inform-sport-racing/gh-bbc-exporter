@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"math/rand"
 	"mime"
 	"mime/multipart"
 	"net/http"
@@ -129,11 +128,10 @@ func (f *ImageFixer) FixImages() error {
 
 			uploadCount++
 			if uploadCount%10 == 0 {
-				pauseSecs := 60 + rand.Intn(61) // random between 60 and 120 seconds
 				f.logger.Info("Pausing to avoid GitHub rate limits",
 					zap.Int("uploads_done", uploadCount),
-					zap.Int("pause_seconds", pauseSecs))
-				time.Sleep(time.Duration(pauseSecs) * time.Second)
+					zap.Int("pause_seconds", 300))
+				time.Sleep(300 * time.Second)
 			}
 
 			urlCache[bbURL] = ghURL
