@@ -567,7 +567,10 @@ func (f *ImageFixer) uploadToS3(policy *uploadPolicyResponse, filename, contentT
 	req.Header.Set("Origin", f.webBase())
 	req.Header.Set("User-Agent", ghUserAgent)
 
-	s3Client := &http.Client{Timeout: 120 * time.Second}
+	s3Client := &http.Client{
+		Timeout:   20 * time.Second,
+		Transport: &http.Transport{IdleConnTimeout: 10 * time.Second},
+	}
 	resp, err := s3Client.Do(req)
 	if err != nil {
 		return err
