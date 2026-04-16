@@ -18,11 +18,12 @@ type fixImagesFlags struct {
 	Repository            string
 
 	// GitHub target
-	TargetOrg         string
-	TargetRepo        string
-	GitHubPAT         string
-	TargetAPIURL      string
-	GitHubUserSession string
+	TargetOrg          string
+	TargetRepo         string
+	GitHubPAT          string
+	TargetAPIURL       string
+	GitHubUserSession  string
+	UploadPauseSeconds int
 
 	Debug bool
 }
@@ -84,6 +85,8 @@ Run this after 'migrate' completes.`,
 		"GitHub API URL (for GitHub Enterprise)")
 	cmd.PersistentFlags().StringVar(&flags.GitHubUserSession, "github-user-session", "",
 		"GitHub user_session cookie value for user-attachment uploads (copy from browser dev tools → Application → Cookies → github.com)")
+	cmd.PersistentFlags().IntVar(&flags.UploadPauseSeconds, "upload-pause", 5,
+		"Seconds to pause after every 10 uploads to avoid GitHub rate limits")
 
 	cmd.PersistentFlags().BoolVarP(&flags.Debug, "debug", "d", false, "Enable debug logging")
 
@@ -113,7 +116,7 @@ func runFixImages(flags *fixImagesFlags, logger *zap.Logger) error {
 		apiBase = "https://api.github.com"
 	}
 
-	fixer := utils.NewImageFixer(ghToken, apiBase, flags.TargetOrg, targetRepo, flags.BitbucketSessionToken, flags.GitHubUserSession, logger)
+	fixer := utils.NewImageFixer(ghToken, apiBase, flags.TargetOrg, targetRepo, flags.BitbucketSessionToken, flags.GitHubUserSession, flags.UploadPauseSeconds, logger)
 
 	logger.Info("Starting image migration",
 		zap.String("bitbucket", fmt.Sprintf("%s/%s", flags.Workspace, flags.Repository)),

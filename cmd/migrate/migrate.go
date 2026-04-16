@@ -278,7 +278,7 @@ func runCmdMigrate(exportFlags *data.CmdExportFlags, migrateFlags *data.CmdMigra
 		targetRepo = exportFlags.Repository
 	}
 	fixer := utils.NewImageFixer(g.AuthToken(), migrateFlags.TargetAPIURL,
-		migrateFlags.TargetOrg, targetRepo, "", "", logger)
+		migrateFlags.TargetOrg, targetRepo, "", "", 5, logger)
 	if err := fixer.FixImages(); err != nil {
 		// Image migration is best-effort — log a warning but don't fail the command.
 		logger.Warn("Inline image migration encountered errors (re-run 'fix-images' to retry)",

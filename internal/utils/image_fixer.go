@@ -32,29 +32,31 @@ var (
 // ImageFixer downloads Bitbucket-hosted inline images from migrated GitHub PR descriptions
 // and re-uploads them to GitHub's CDN, then patches the PR bodies in place.
 type ImageFixer struct {
-	ghToken       string
-	ghAPIBase     string // e.g. "https://api.github.com"
-	targetOrg     string
-	targetRepo    string
-	sessionToken  string // Atlassian cloud.session.token cookie
-	ghUserSession string // GitHub user_session cookie for user-attachment uploads
-	httpClient    *http.Client
-	logger        *zap.Logger
-	cachedRepoID      int
-	cachedToken       string
+	ghToken            string
+	ghAPIBase          string // e.g. "https://api.github.com"
+	targetOrg          string
+	targetRepo         string
+	sessionToken       string // Atlassian cloud.session.token cookie
+	ghUserSession      string // GitHub user_session cookie for user-attachment uploads
+	uploadPauseSeconds int
+	httpClient         *http.Client
+	logger             *zap.Logger
+	cachedRepoID        int
+	cachedToken         string
 	cachedSessionClient *http.Client
 }
 
-func NewImageFixer(ghToken, ghAPIBase, targetOrg, targetRepo, sessionToken, ghUserSession string, logger *zap.Logger) *ImageFixer {
+func NewImageFixer(ghToken, ghAPIBase, targetOrg, targetRepo, sessionToken, ghUserSession string, uploadPauseSeconds int, logger *zap.Logger) *ImageFixer {
 	return &ImageFixer{
-		ghToken:       ghToken,
-		ghAPIBase:     ghAPIBase,
-		targetOrg:     targetOrg,
-		targetRepo:    targetRepo,
-		sessionToken:  sessionToken,
-		ghUserSession: ghUserSession,
-		httpClient:    &http.Client{},
-		logger:        logger,
+		ghToken:            ghToken,
+		ghAPIBase:          ghAPIBase,
+		targetOrg:          targetOrg,
+		targetRepo:         targetRepo,
+		sessionToken:       sessionToken,
+		ghUserSession:      ghUserSession,
+		uploadPauseSeconds: uploadPauseSeconds,
+		httpClient:         &http.Client{},
+		logger:             logger,
 	}
 }
 
@@ -130,8 +132,8 @@ func (f *ImageFixer) FixImages() error {
 			if uploadCount%10 == 0 {
 				f.logger.Info("Pausing to avoid GitHub rate limits",
 					zap.Int("uploads_done", uploadCount),
-					zap.Int("pause_seconds", 300))
-				time.Sleep(300 * time.Second)
+					zap.Int("pause_seconds", f.uploadPauseSeconds))
+				time.Sleep(time.Duration(f.uploadPauseSeconds) * time.Second)
 			}
 
 			urlCache[bbURL] = ghURL
