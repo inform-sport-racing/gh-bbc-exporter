@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/rand"
 	"mime"
 	"mime/multipart"
 	"net/http"
@@ -40,6 +41,9 @@ type ImageFixer struct {
 	ghUserSession string // GitHub user_session cookie for user-attachment uploads
 	httpClient    *http.Client
 	logger        *zap.Logger
+	cachedRepoID      int
+	cachedToken       string
+	cachedSessionClient *http.Client
 }
 
 func NewImageFixer(ghToken, ghAPIBase, targetOrg, targetRepo, sessionToken, ghUserSession string, logger *zap.Logger) *ImageFixer {
@@ -63,12 +67,25 @@ func (f *ImageFixer) FixImages() error {
 	if err != nil {
 		return fmt.Errorf("listing GitHub PRs: %w", err)
 	}
-	f.logger.Info("Found PRs to scan", zap.Int("count", len(prs)))
+	// Count unique images across all PRs upfront so the user knows the scope.
+	allImageURLs := make(map[string]bool)
+	for _, pr := range prs {
+		if pr.Body == "" {
+			continue
+		}
+		for _, u := range bitbucketInlineImagePattern.FindAllString(pr.Body, -1) {
+			allImageURLs[u] = true
+		}
+	}
+	f.logger.Info("Found PRs to scan",
+		zap.Int("prs", len(prs)),
+		zap.Int("unique_images", len(allImageURLs)))
 
 	// Build a cache of Bitbucket URL → GitHub asset URL so we only upload each image once.
 	urlCache := make(map[string]string)
 
 	fixed := 0
+	uploadCount := 0
 	for _, pr := range prs {
 		if pr.Body == "" {
 			continue
@@ -78,6 +95,8 @@ func (f *ImageFixer) FixImages() error {
 		if len(matches) == 0 {
 			continue
 		}
+
+		f.logger.Info("Processing PR", zap.Int("pr", pr.Number))
 
 		newBody := pr.Body
 		changed := false
@@ -97,11 +116,24 @@ func (f *ImageFixer) FixImages() error {
 			}
 
 			filename := extractFilename(bbURL)
+			f.logger.Info("Uploading image",
+				zap.Int("pr", pr.Number),
+				zap.Int("upload_number", uploadCount+1),
+				zap.String("file", filename))
 			ghURL, err := f.uploadToGitHub(filename, contentType, imgData)
 			if err != nil {
 				f.logger.Warn("Failed to upload image to GitHub",
 					zap.String("url", bbURL), zap.Error(err))
 				continue
+			}
+
+			uploadCount++
+			if uploadCount%10 == 0 {
+				pauseSecs := 60 + rand.Intn(61) // random between 60 and 120 seconds
+				f.logger.Info("Pausing to avoid GitHub rate limits",
+					zap.Int("uploads_done", uploadCount),
+					zap.Int("pause_seconds", pauseSecs))
+				time.Sleep(time.Duration(pauseSecs) * time.Second)
 			}
 
 			urlCache[bbURL] = ghURL
@@ -316,19 +348,28 @@ func (f *ImageFixer) uploadAsUserAttachment(filename, contentType string, imgDat
 			"(copy user_session cookie from browser dev tools → Application → Cookies → github.com)")
 	}
 
-	sessionClient := f.newSessionClient()
+	if f.cachedSessionClient == nil {
+		f.cachedSessionClient = f.newSessionClient()
+	}
+	sessionClient := f.cachedSessionClient
 
-	repoID, err := f.getRepoID()
-	if err != nil {
-		return "", fmt.Errorf("getting repo ID: %w", err)
+	if f.cachedRepoID == 0 {
+		repoID, err := f.getRepoID()
+		if err != nil {
+			return "", fmt.Errorf("getting repo ID: %w", err)
+		}
+		f.cachedRepoID = repoID
 	}
 
-	uploadToken, err := f.getUploadToken(sessionClient)
-	if err != nil {
-		return "", fmt.Errorf("getting upload token: %w", err)
+	if f.cachedToken == "" {
+		uploadToken, err := f.getUploadToken(sessionClient)
+		if err != nil {
+			return "", fmt.Errorf("getting upload token: %w", err)
+		}
+		f.cachedToken = uploadToken
 	}
 
-	policy, err := f.requestUploadPolicy(sessionClient, uploadToken, repoID, filename, contentType, len(imgData))
+	policy, err := f.requestUploadPolicy(sessionClient, f.cachedToken, f.cachedRepoID, filename, contentType, len(imgData))
 	if err != nil {
 		return "", fmt.Errorf("requesting upload policy: %w", err)
 	}
