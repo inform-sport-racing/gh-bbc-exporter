@@ -109,14 +109,18 @@ func (f *ImageFixer) FixImages() error {
 				continue
 			}
 
-			imgData, contentType, err := f.downloadFromBitbucket(bbURL)
+			// Unescape Markdown escape sequences (e.g. \_ → _) before using
+			// the URL for download — the PR body may contain escaped underscores
+			// that are not part of the actual Bitbucket filename.
+			downloadURL := unescapeMarkdownURL(bbURL)
+			imgData, contentType, err := f.downloadFromBitbucket(downloadURL)
 			if err != nil {
 				f.logger.Warn("Failed to download Bitbucket image",
 					zap.String("url", bbURL), zap.Error(err))
 				continue
 			}
 
-			filename := extractFilename(bbURL)
+			filename := extractFilename(downloadURL)
 			f.logger.Info("Uploading image",
 				zap.Int("pr", pr.Number),
 				zap.Int("upload_number", uploadCount+1),
@@ -704,6 +708,22 @@ func contentTypeFromFilename(name string) string {
 	default:
 		return "image/png"
 	}
+}
+
+// unescapeMarkdownURL removes Markdown backslash escapes from a URL
+// (e.g. "file\_name" → "file_name"). URLs should never contain backslashes,
+// so any \X sequence is safely reduced to X.
+func unescapeMarkdownURL(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\\' && i+1 < len(s) {
+			i++
+			b.WriteByte(s[i])
+		} else {
+			b.WriteByte(s[i])
+		}
+	}
+	return b.String()
 }
 
 func truncateMsg(s string, maxLen int) string {
